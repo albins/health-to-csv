@@ -1,0 +1,12 @@
+[package]
+name = "health-to-csv"
+version = "0.1.0"
+authors = ["Albin Stjerna <albin.stjerna@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+roxmltree = "0.6.1"
+csv = "1.1"
+log = "0.4"
+env_logger = "0.6"
+zip = "0.5.2"
