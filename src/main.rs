@@ -1,6 +1,6 @@
 use csv;
 use env_logger;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use roxmltree;
 use std::collections::BTreeMap; // Sorted by keys!
 use std::env;
@@ -11,6 +11,37 @@ use std::io::Read;
 use std::process;
 use std::time::Instant;
 use zip;
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Record {
+    data_type: String,
+    unit: Option<String>,
+    value: Option<String>,
+    source_name: String,
+    source_version: Option<String>,
+    device: Option<String>,
+    creation_date: Option<String>,
+    start_date: String,
+    end_date: String,
+}
+
+impl Record {
+    fn from_dict(record: BTreeMap<String, String>) -> Record {
+        Record {
+            data_type: record.get("type").unwrap().to_string(),
+            unit: record.get("unit").map(|v| v.to_string()),
+            value: record.get("value").map(|v| v.to_string()),
+            source_name: record.get("sourceName").unwrap().to_string(),
+            source_version: record.get("sourceVersion").map(|v| v.to_string()),
+            device: record.get("device").map(|v| v.to_string()),
+            creation_date: record.get("creationDate").map(|v| v.to_string()),
+            start_date: record.get("startDate").unwrap().to_string(),
+            end_date: record.get("endDate").unwrap().to_string(),
+        }
+    }
+}
 
 fn load_file(path: &str) -> Result<String, Box<dyn Error>> {
     let read_timer = Instant::now();
@@ -28,7 +59,7 @@ fn load_file(path: &str) -> Result<String, Box<dyn Error>> {
     Ok(text)
 }
 
-fn record_to_map(record: roxmltree::Node) -> BTreeMap<String, String> {
+fn xml_to_dict(record: roxmltree::Node) -> BTreeMap<String, String> {
     record
         .attributes()
         .iter()
@@ -36,7 +67,7 @@ fn record_to_map(record: roxmltree::Node) -> BTreeMap<String, String> {
         .collect()
 }
 
-fn parse_health_xml(xml: String) -> Result<Vec<BTreeMap<String, String>>, Box<dyn Error>> {
+fn parse_health_xml(xml: String) -> Result<Vec<Record>, Box<dyn Error>> {
     info!("Parsing XML...");
     let parse_timer = Instant::now();
     let document = roxmltree::Document::parse(&xml)?;
@@ -51,16 +82,18 @@ fn parse_health_xml(xml: String) -> Result<Vec<BTreeMap<String, String>>, Box<dy
     Ok(health_data
         .children()
         .filter(|e| e.has_tag_name("Record"))
-        .map(record_to_map)
+        .map(xml_to_dict)
+        .map(Record::from_dict)
         .collect())
 }
 
-fn dump_csv(records: Vec<BTreeMap<String, String>>) -> Result<(), Box<dyn Error>> {
+fn dump_csv(records: Vec<Record>) -> Result<(), Box<dyn Error>> {
     let mut wtr = csv::Writer::from_writer(io::stdout());
 
-    wtr.write_record(records.first().ok_or("No records!")?.keys())?;
-    for row in records.iter() {
-        wtr.write_record(row.values())?;
+    for record in records.into_iter() {
+        if let Err(e) = wtr.serialize(&record) {
+            warn!("Error {} writing record {:?}; skipping!", e, record);
+        }
     }
     wtr.flush()?;
 
